@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Economics Batch 2023–26 • Admin</title>
+<meta name="theme-color" content="#172554">
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f4f6fb;color:#172033}
+.wrap{max-width:720px;margin:auto;padding:20px}
+.card{background:#fff;border-radius:18px;padding:20px;margin:14px 0;box-shadow:0 5px 20px #00000012}
+h1{font-size:24px;margin:0 0 6px}h2{font-size:19px}
+input{width:100%;padding:13px;margin:7px 0;border:1px solid #ccd3df;border-radius:10px;font-size:16px}
+button{border:0;border-radius:10px;padding:12px 15px;font-weight:700;cursor:pointer;margin:5px 5px 5px 0}
+.primary{background:#172554;color:white}.approve{background:#15803d;color:white}.reject{background:#b91c1c;color:white}
+.muted{color:#667085;font-size:14px}.hidden{display:none}.user{border:1px solid #e1e5ec;border-radius:13px;padding:14px;margin:10px 0}
+.status{font-size:12px;font-weight:700}.pending{color:#b45309}.approved{color:#15803d}.rejected{color:#b91c1c}
+#msg{padding:10px;border-radius:10px;margin-top:10px}.ok{background:#dcfce7}.err{background:#fee2e2}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>🔐 Economics Department</h1>
+    <div class="muted">Batch 2023–26 • Admin Panel</div>
+  </div>
+
+  <div id="login" class="card">
+    <h2>Admin Login</h2>
+    <input id="email" type="email" placeholder="Admin email">
+    <input id="password" type="password" placeholder="Admin password">
+    <button class="primary" onclick="login()">Login</button>
+    <div id="loginMsg"></div>
+  </div>
+
+  <div id="panel" class="hidden">
+    <div class="card">
+      <h2>👥 Pending Students</h2>
+      <button class="primary" onclick="loadUsers()">Refresh</button>
+      <button onclick="logout()">Logout</button>
+      <div id="users"></div>
+      <div id="msg"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script>
+const client = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
+function showMsg(text, ok=false){
+  const el=document.getElementById('msg');
+  el.className=ok?'ok':'err'; el.textContent=text;
+}
+function loginMsg(text, ok=false){
+  const el=document.getElementById('loginMsg');
+  el.className=ok?'ok':'err'; el.textContent=text;
+}
+
+async function login(){
+  const email=document.getElementById('email').value.trim();
+  const password=document.getElementById('password').value;
+  if(!email||!password){loginMsg('Enter email and password.');return;}
+  const {data,error}=await client.auth.signInWithPassword({email,password});
+  if(error){loginMsg(error.message);return;}
+  const {data:p,error:pe}=await client.from('profiles').select('id,full_name,email,role,status').eq('id',data.user.id).single();
+  if(pe){await client.auth.signOut();loginMsg(pe.message);return;}
+  if(p.role!=='admin'){
+    await client.auth.signOut();
+    loginMsg('This account is not an admin.');
+    return;
+  }
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('panel').classList.remove('hidden');
+  await loadUsers();
+}
+
+async function loadUsers(){
+  const box=document.getElementById('users');
+  box.innerHTML='<p class="muted">Loading...</p>';
+  const {data,error}=await client.from('profiles').select('id,full_name,email,role,status,created_at').order('created_at',{ascending:false});
+  if(error){box.innerHTML='';showMsg(error.message);return;}
+  const pending=data.filter(u=>u.role==='student' && u.status==='pending');
+  if(!pending.length){box.innerHTML='<p class="muted">No pending students right now.</p>';return;}
+  box.innerHTML=pending.map(u=>`
+    <div class="user">
+      <b>${escapeHtml(u.full_name||'Student')}</b><br>
+      <span class="muted">${escapeHtml(u.email||'No email')}</span><br>
+      <span class="status pending">PENDING</span><br>
+      <button class="approve" onclick="setStatus('${u.id}','approved')">Approve</button>
+      <button class="reject" onclick="setStatus('${u.id}','rejected')">Reject</button>
+    </div>`).join('');
+}
+async function setStatus(id,status){
+  const {error}=await client.from('profiles').update({status}).eq('id',id);
+  if(error){showMsg(error.message);return;}
+  showMsg(status==='approved'?'Student approved successfully.':'Student rejected.',true);
+  await loadUsers();
+}
+async function logout(){
+  await client.auth.signOut();
+  location.reload();
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+}
+</script>
+</body>
+</html>
